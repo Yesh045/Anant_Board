@@ -6,55 +6,82 @@
     <title>AnantBoard</title>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
     <style>
         body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         
-        /* --- TOOLBAR STYLES --- */
+        /* --- SIDEBAR (FILE SYSTEM) --- */
+        #sidebar {
+            position: absolute; top: 0; left: -260px; width: 250px; height: 100%;
+            background: rgba(255, 255, 255, 0.98); border-right: 1px solid #ddd;
+            z-index: 2000; transition: left 0.3s ease; padding: 20px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1); display: flex; flex-direction: column;
+        }
+        #sidebar.open { left: 0; }
+        
+        body.dark-mode #sidebar { background: #222; border-right: 1px solid #444; color: white; }
+
+        .sidebar-header { font-size: 20px; font-weight: bold; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .file-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        
+        .file-item {
+            padding: 10px; border-radius: 8px; cursor: pointer; background: #f5f5f5;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .file-item:hover { background: #eee; }
+        .file-item.active { background: #000; color: white; }
+        
+        body.dark-mode .file-item { background: #333; }
+        body.dark-mode .file-item:hover { background: #444; }
+        body.dark-mode .file-item.active { background: #fff; color: black; }
+
+        .btn-new { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }
+        .btn-delete { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 14px; padding: 5px; }
+
+        /* --- TOOLBAR --- */
         #toolbar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
             background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
             padding: 8px 16px; border-radius: 16px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
             display: flex; gap: 12px; align-items: center; z-index: 1000;
-            border: 1px solid rgba(0,0,0,0.05);
-            flex-wrap: wrap; /* Allows wrapping on small phones */
-            justify-content: center;
+            border: 1px solid rgba(0,0,0,0.05); flex-wrap: wrap; justify-content: center;
         }
+        body.dark-mode #toolbar { background: rgba(40, 40, 40, 0.95); border: 1px solid rgba(255,255,255,0.1); color: white; }
 
-        body.dark-mode #toolbar {
-            background: rgba(40, 40, 40, 0.95);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: white;
-        }
+        /* Menu Button (Hamburger) */
+        #menu-btn { position: absolute; top: 20px; left: 20px; z-index: 2001; background: white; border: none; padding: 10px; border-radius: 50%; box-shadow: 0 2px 10px rgba(0,0,0,0.1); cursor: pointer; }
+        body.dark-mode #menu-btn { background: #333; color: white; }
 
-        .tool-btn {
-            background: none; border: none; font-size: 18px; cursor: pointer; padding: 8px; border-radius: 8px;
-            transition: 0.2s; opacity: 0.7;
-        }
+        .tool-btn { background: none; border: none; font-size: 18px; cursor: pointer; padding: 8px; border-radius: 8px; transition: 0.2s; opacity: 0.7; }
         .tool-btn:hover { background: rgba(0,0,0,0.05); opacity: 1; }
         .tool-btn.active { background: #000; color: white; opacity: 1; }
         body.dark-mode .tool-btn.active { background: #fff; color: #000; }
 
         .divider { width: 1px; height: 24px; background: #ddd; }
-
-        /* --- NEW COLOR PALETTE --- */
+        
         .color-group { display: flex; gap: 6px; align-items: center; }
-        .color-swatch {
-            width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
-            border: 2px solid rgba(0,0,0,0.1); transition: transform 0.1s;
-        }
-        .color-swatch:hover { transform: scale(1.2); }
+        .color-swatch { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid rgba(0,0,0,0.1); transition: transform 0.1s; }
         .color-swatch.active { border: 2px solid #000; transform: scale(1.1); }
         body.dark-mode .color-swatch.active { border-color: #fff; }
 
-        input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; padding: 0; }
-        input[type="range"] { width: 80px; accent-color: #000; cursor: pointer; }
-        body.dark-mode input[type="range"] { accent-color: #fff; }
-        
-        #install-btn { display: none; font-size: 12px; font-weight: bold; color: #007bff; cursor: pointer; padding: 5px 10px; background: #eef7ff; border-radius: 20px; }
+        input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; }
+        input[type="range"] { width: 80px; cursor: pointer; }
     </style>
 </head>
 <body>
+
+    <button id="menu-btn" onclick="toggleSidebar()">☰</button>
+    <div id="sidebar">
+        <div class="sidebar-header">
+            My Boards
+            <span onclick="toggleSidebar()" style="cursor:pointer; font-size:14px">✕</span>
+        </div>
+        <button class="btn-new" onclick="createNewBoard()">+ New Board</button>
+        <div class="file-list" id="fileList">
+            </div>
+    </div>
 
     <div id="toolbar">
         <button class="tool-btn active" id="btn-draw" onclick="setMode('draw')" title="Pen">✏️</button>
@@ -64,54 +91,44 @@
         <div class="divider"></div>
         
         <div class="color-group">
-            <div class="color-swatch active" style="background: #000000;" onclick="pickColor('#000000', this)" title="Black"></div>
-            <div class="color-swatch" style="background: #0044ff;" onclick="pickColor('#0044ff', this)" title="Blue"></div>
-            <div class="color-swatch" style="background: #ff0000;" onclick="pickColor('#ff0000', this)" title="Red"></div>
-            <div class="color-swatch" style="background: #00aa00;" onclick="pickColor('#00aa00', this)" title="Green"></div>
-            <div class="color-swatch" style="background: #ffcc00;" onclick="pickColor('#ffcc00', this)" title="Yellow"></div>
-            
-            <input type="color" id="colorPicker" value="#000000" onchange="pickColor(this.value, null)" title="Custom Color">
+            <div class="color-swatch active" style="background: #000000;" onclick="pickColor('#000000', this)"></div>
+            <div class="color-swatch" style="background: #0044ff;" onclick="pickColor('#0044ff', this)"></div>
+            <div class="color-swatch" style="background: #ff0000;" onclick="pickColor('#ff0000', this)"></div>
+            <div class="color-swatch" style="background: #00aa00;" onclick="pickColor('#00aa00', this)"></div>
+            <input type="color" id="colorPicker" value="#000000" onchange="pickColor(this.value, null)">
         </div>
 
         <div class="divider"></div>
 
-        <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush()" title="Thickness">
+        <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush()">
 
         <div class="divider"></div>
 
         <button class="tool-btn" onclick="toggleDarkMode()" title="Dark Mode">🌙</button>
-        <button class="tool-btn" onclick="exportImage()" title="Save Image">📷</button>
-        <button class="tool-btn" onclick="clearCanvas()" title="Clear All">🗑️</button>
-        
-        <span id="install-btn" onclick="installApp()">⬇ App</span>
+        <button class="tool-btn" onclick="exportFullPDF()" title="Download Full PDF">📄 PDF</button>
+        <button class="tool-btn" onclick="clearCanvas()" title="Clear">🗑️</button>
     </div>
 
     <canvas id="c"></canvas>
 
     <script>
         // --- 1. SETUP ---
-        const canvas = new fabric.Canvas('c', { 
-            isDrawingMode: true, 
-            width: window.innerWidth, 
-            height: window.innerHeight, 
-            backgroundColor: '#ffffff' 
-        });
-
+        const canvas = new fabric.Canvas('c', { isDrawingMode: true, width: window.innerWidth, height: window.innerHeight, backgroundColor: '#ffffff' });
         const pencilBrush = new fabric.PencilBrush(canvas);
         const eraserBrush = new fabric.PencilBrush(canvas);
-        eraserBrush.color = "#ffffff"; // Eraser is just white paint
-
+        eraserBrush.color = "#ffffff";
+        
         let currentMode = 'draw';
         let isDarkMode = false;
-        let baseBrushSize = 3; // We store the slider value here
+        let baseBrushSize = 3;
+        
+        // --- FILE SYSTEM VARIABLES ---
+        let currentBoardId = 'default_board';
+        const BOARDS_KEY = 'anant_boards_index';
 
-        // --- 2. BRUSH & ZOOM LOGIC (THE FIX) ---
+        // --- 2. BRUSH & ZOOM LOGIC ---
         function updateBrush() {
-            // Get slider value
             baseBrushSize = parseInt(document.getElementById('sizeSlider').value, 10);
-            
-            // Calculate "Screen-Constant" size
-            // If we zoom in (zoom > 1), we make the brush smaller so it looks the same width on screen
             const zoom = canvas.getZoom();
             const effectiveWidth = baseBrushSize / zoom;
 
@@ -121,45 +138,184 @@
                 pencilBrush.color = document.getElementById('colorPicker').value;
             } else if (currentMode === 'erase') {
                 canvas.freeDrawingBrush = eraserBrush;
-                eraserBrush.width = effectiveWidth * 5; // Eraser is naturally 5x wider than pen
+                eraserBrush.width = effectiveWidth * 5;
             }
         }
 
-        // --- 3. COLOR LOGIC ---
-        function pickColor(hex, swatchElement) {
-            // Update the hidden picker
-            const picker = document.getElementById('colorPicker');
-            picker.value = hex;
-            
-            // Visual feedback on swatches
-            document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('active'));
-            if(swatchElement) swatchElement.classList.add('active');
-
-            // Switch back to draw mode if user clicks a color
-            if(currentMode !== 'draw') setMode('draw');
-            updateBrush();
-        }
-
-        // --- 4. ZOOM & PAN ENGINE ---
         canvas.on('mouse:wheel', function(opt) {
             var delta = opt.e.deltaY;
             var zoom = canvas.getZoom();
             zoom *= 0.999 ** delta;
-            
-            // Limit zoom
-            if (zoom > 20) zoom = 20; 
-            if (zoom < 0.01) zoom = 0.01;
-            
+            if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
             canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
-            
-            // CRITICAL: Update brush size immediately after zooming
-            updateBrush();
-            
-            opt.e.preventDefault();
-            opt.e.stopPropagation();
+            updateBrush(); // Keep brush visual size constant
+            opt.e.preventDefault(); opt.e.stopPropagation();
         });
 
-        // Pan Logic
+        // --- 3. FILE SYSTEM LOGIC (NEW) ---
+        
+        function getBoardList() {
+            const list = localStorage.getItem(BOARDS_KEY);
+            return list ? JSON.parse(list) : [{id: 'default_board', name: 'General Notes'}];
+        }
+
+        function saveBoardList(list) {
+            localStorage.setItem(BOARDS_KEY, JSON.stringify(list));
+        }
+
+        function renderSidebar() {
+            const list = getBoardList();
+            const container = document.getElementById('fileList');
+            container.innerHTML = '';
+            
+            list.forEach(board => {
+                const div = document.createElement('div');
+                div.className = `file-item ${board.id === currentBoardId ? 'active' : ''}`;
+                div.innerHTML = `
+                    <span onclick="switchBoard('${board.id}')">${board.name}</span>
+                    ${list.length > 1 ? `<button class="btn-delete" onclick="deleteBoard('${board.id}')">🗑</button>` : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function createNewBoard() {
+            const name = prompt("Enter Name for new notes:");
+            if (!name) return;
+            
+            // 1. Save current
+            saveLocally();
+            
+            // 2. Create new entry
+            const list = getBoardList();
+            const newId = 'board_' + Date.now();
+            list.push({ id: newId, name: name });
+            saveBoardList(list);
+            
+            // 3. Switch to it (Clear canvas)
+            currentBoardId = newId;
+            canvas.clear();
+            canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff';
+            saveLocally(); // Save the new empty state
+            renderSidebar();
+            toggleSidebar(); // Close menu
+        }
+
+        function switchBoard(id) {
+            if (id === currentBoardId) return;
+            saveLocally(); // Save old
+            currentBoardId = id;
+            
+            // Load new
+            const saved = localStorage.getItem(currentBoardId);
+            if (saved) {
+                canvas.loadFromJSON(saved, function() {
+                    canvas.renderAll();
+                    updateDarkModeVisuals(); // Ensure colors match theme
+                });
+            } else {
+                canvas.clear(); // Should not happen if logic is correct
+            }
+            renderSidebar();
+        }
+
+        function deleteBoard(id) {
+            if (!confirm("Delete this board forever?")) return;
+            let list = getBoardList();
+            list = list.filter(b => b.id !== id);
+            saveBoardList(list);
+            localStorage.removeItem(id); // Clean up data
+            
+            // If we deleted current board, switch to first available
+            if (id === currentBoardId) {
+                currentBoardId = list[0].id;
+                switchBoard(currentBoardId);
+            } else {
+                renderSidebar();
+            }
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        // --- 4. EXPORT TO PDF (SMART LOGIC) ---
+        function exportFullPDF() {
+            if (canvas.getObjects().length === 0) {
+                alert("Canvas is empty!");
+                return;
+            }
+
+            // 1. Calculate the bounding box of ALL objects
+            const objects = canvas.getObjects();
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+            objects.forEach(obj => {
+                const rect = obj.getBoundingRect();
+                if(rect.left < minX) minX = rect.left;
+                if(rect.top < minY) minY = rect.top;
+                if(rect.left + rect.width > maxX) maxX = rect.left + rect.width;
+                if(rect.top + rect.height > maxY) maxY = rect.top + rect.height;
+            });
+
+            // Add some padding
+            const padding = 50;
+            minX -= padding; minY -= padding;
+            maxX += padding; maxY += padding;
+            const width = maxX - minX;
+            const height = maxY - minY;
+
+            // 2. Save current Viewport
+            const originalVpt = canvas.viewportTransform;
+            const originalWidth = canvas.width;
+            const originalHeight = canvas.height;
+
+            // 3. Adjust canvas to fit the WHOLE drawing
+            canvas.setWidth(width);
+            canvas.setHeight(height);
+            // Move the "Camera" to look at the drawing
+            canvas.setViewportTransform([1, 0, 0, 1, -minX, -minY]);
+
+            // 4. Create PDF
+            const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1.5 }); // 1.5x quality
+            const { jsPDF } = window.jspdf;
+            
+            // Create a PDF with the exact size of your drawing (Digital Note style)
+            // Units are in points (1px approx 0.75pt)
+            const pdf = new jsPDF({
+                orientation: width > height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [width, height]
+            });
+            
+            pdf.addImage(dataUrl, 'PNG', 0, 0, width, height);
+            pdf.save(`${currentBoardId}.pdf`);
+
+            // 5. Restore User View
+            canvas.setWidth(originalWidth);
+            canvas.setHeight(originalHeight);
+            canvas.setViewportTransform(originalVpt);
+        }
+
+        // --- 5. STANDARD LOGIC (Pan, Colors, Save) ---
+        function saveLocally() {
+            localStorage.setItem(currentBoardId, JSON.stringify(canvas.toJSON()));
+        }
+        
+        canvas.on('path:created', saveLocally);
+        canvas.on('object:modified', saveLocally);
+        
+        window.onload = function() {
+            renderSidebar();
+            // Load the default or last active board
+            const saved = localStorage.getItem(currentBoardId);
+            if (saved) canvas.loadFromJSON(saved);
+        };
+
+        // ... [Include Pan, Color Pick, Dark Mode, Resize logic from previous version here] ...
+        // (Simplified for brevity, but copy the Helper Functions below to make it work)
+
+        // HELPER FUNCTIONS (Copy these exactly)
         let isDragging = false, lastPosX, lastPosY;
         canvas.on('mouse:down', function(opt) {
             if (currentMode === 'pan' || opt.e.altKey) {
@@ -175,85 +331,44 @@
                 lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
             }
         });
-        canvas.on('mouse:up', () => { 
-            isDragging = false; 
-            if(currentMode !== 'pan') canvas.isDrawingMode = true; 
-        });
+        canvas.on('mouse:up', () => { isDragging = false; if(currentMode !== 'pan') canvas.isDrawingMode = true; });
 
-        // --- 5. TOOL SWITCHING ---
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(`btn-${mode}`).classList.add('active');
-            
-            if (mode === 'pan') {
-                canvas.isDrawingMode = false;
-                canvas.defaultCursor = 'grab';
-            } else {
-                canvas.isDrawingMode = true;
-                canvas.defaultCursor = mode === 'erase' ? 'crosshair' : 'default';
-                updateBrush(); // Apply correct brush/eraser size
-            }
+            if (mode === 'pan') { canvas.isDrawingMode = false; canvas.defaultCursor = 'grab'; }
+            else { canvas.isDrawingMode = true; canvas.defaultCursor = mode === 'erase' ? 'crosshair' : 'default'; updateBrush(); }
         }
 
-        // --- 6. DARK MODE ---
+        function pickColor(hex, el) {
+            document.getElementById('colorPicker').value = hex;
+            document.querySelectorAll('.color-swatch').forEach(e => e.classList.remove('active'));
+            if(el) el.classList.add('active');
+            if(currentMode !== 'draw') setMode('draw');
+            updateBrush();
+        }
+
         function toggleDarkMode() {
             isDarkMode = !isDarkMode;
             document.body.classList.toggle('dark-mode');
-            
+            updateDarkModeVisuals();
+            saveLocally();
+        }
+
+        function updateDarkModeVisuals() {
             const newBg = isDarkMode ? '#1a1a1a' : '#ffffff';
             canvas.backgroundColor = newBg;
             eraserBrush.color = newBg;
-
-            // Invert colors to make them visible
             canvas.getObjects().forEach(obj => {
                 if (obj.stroke === '#000000' && isDarkMode) obj.set('stroke', '#ffffff');
                 else if (obj.stroke === '#ffffff' && !isDarkMode) obj.set('stroke', '#000000');
             });
-            
-            // If current color is black, auto-switch picker for the user
-            const picker = document.getElementById('colorPicker');
-            if(picker.value === '#000000' && isDarkMode) picker.value = '#ffffff';
-            if(picker.value === '#ffffff' && !isDarkMode) picker.value = '#000000';
-
-            updateBrush();
             canvas.renderAll();
         }
 
-        // --- 7. EXPORT & SYSTEM ---
-        function clearCanvas() { if(confirm("Clear AnantBoard?")) { canvas.clear(); canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff'; } }
-        
-        function exportImage() {
-            const vpt = canvas.viewportTransform;
-            canvas.setViewportTransform([1,0,0,1,0,0]); // Reset zoom for clean screenshot
-            const dataURL = canvas.toDataURL({ format: 'png', multiplier: 2 });
-            const link = document.createElement('a');
-            link.download = 'anantboard-note.png';
-            link.href = dataURL;
-            link.click();
-            canvas.setViewportTransform(vpt); // Restore zoom
-        }
-
-        // Auto Save
-        canvas.on('path:created', () => localStorage.setItem('anant_data', JSON.stringify(canvas.toJSON())));
-        window.onload = () => {
-            const saved = localStorage.getItem('anant_data');
-            if(saved) canvas.loadFromJSON(saved);
-        };
+        function clearCanvas() { if(confirm("Clear current notes?")) { canvas.clear(); updateDarkModeVisuals(); saveLocally(); } }
         window.addEventListener('resize', () => { canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); });
-
-        // PWA Install
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault(); deferredPrompt = e;
-            document.getElementById('install-btn').style.display = 'inline-block';
-        });
-        async function installApp() {
-            if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; }
-        }
-
-        // Initialize
-        updateBrush();
     </script>
 </body>
 </html>
