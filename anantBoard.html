@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AnantBoard</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        
+        /* Floating "Island" Toolbar */
+        #toolbar {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            padding: 8px 20px; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
+            display: flex; gap: 12px; align-items: center; z-index: 1000;
+            border: 1px solid rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+        }
+
+        /* Dark Mode Styles for Toolbar */
+        body.dark-mode #toolbar {
+            background: rgba(40, 40, 40, 0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+        }
+
+        .tool-btn {
+            background: none; border: none; font-size: 18px; cursor: pointer; padding: 8px; border-radius: 8px;
+            transition: 0.2s; opacity: 0.7;
+        }
+        .tool-btn:hover { background: rgba(0,0,0,0.05); opacity: 1; }
+        .tool-btn.active { background: #000; color: white; opacity: 1; }
+        
+        /* Dark mode button adjustments */
+        body.dark-mode .tool-btn:hover { background: rgba(255,255,255,0.1); }
+        body.dark-mode .tool-btn.active { background: #fff; color: #000; }
+
+        .divider { width: 1px; height: 20px; background: #ddd; }
+        body.dark-mode .divider { background: #555; }
+
+        input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; border-radius: 50%; overflow: hidden; }
+        input[type="range"] { width: 70px; accent-color: #000; }
+        body.dark-mode input[type="range"] { accent-color: #fff; }
+
+        #install-btn { display: none; font-size: 12px; font-weight: bold; color: #007bff; cursor: pointer; padding: 5px 10px; background: #eef7ff; border-radius: 20px; }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <button class="tool-btn active" id="btn-draw" onclick="setMode('draw')" title="Pen">✏️</button>
+        <button class="tool-btn" id="btn-erase" onclick="setMode('erase')" title="Eraser">🧹</button>
+        <button class="tool-btn" id="btn-pan" onclick="setMode('pan')" title="Hand">✋</button>
+        
+        <div class="divider"></div>
+        
+        <input type="color" id="colorPicker" value="#000000" onchange="updateBrush()">
+        <input type="range" id="sizeSlider" min="1" max="50" value="3" oninput="updateBrush()" title="Thickness">
+        
+        <div class="divider"></div>
+
+        <button class="tool-btn" onclick="toggleDarkMode()" title="Dark Mode">🌙</button>
+        <button class="tool-btn" onclick="exportImage()" title="Export Image">📷</button>
+        <button class="tool-btn" onclick="clearCanvas()" title="Clear Board">🗑️</button>
+        
+        <span id="install-btn" onclick="installApp()">⬇ App</span>
+    </div>
+
+    <canvas id="c"></canvas>
+
+    <script>
+        // --- 1. SETUP ---
+        const canvas = new fabric.Canvas('c', { 
+            isDrawingMode: true, 
+            width: window.innerWidth, 
+            height: window.innerHeight, 
+            backgroundColor: '#ffffff' 
+        });
+
+        const pencilBrush = new fabric.PencilBrush(canvas);
+        const eraserBrush = new fabric.PencilBrush(canvas);
+        eraserBrush.width = 30;
+        eraserBrush.color = "#ffffff"; // Eraser paints background color
+
+        let currentMode = 'draw';
+        let isDarkMode = false;
+
+        // --- 2. DARK MODE LOGIC (The "Magic" Part) ---
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark-mode');
+            
+            // 1. Change Background
+            const newBg = isDarkMode ? '#1a1a1a' : '#ffffff';
+            canvas.backgroundColor = newBg;
+            eraserBrush.color = newBg; // Eraser must match background
+
+            // 2. Invert Existing Strokes (Magic Fix)
+            canvas.getObjects().forEach(obj => {
+                if (obj.stroke === '#000000' && isDarkMode) {
+                    obj.set('stroke', '#ffffff');
+                } else if (obj.stroke === '#ffffff' && !isDarkMode) {
+                    obj.set('stroke', '#000000');
+                }
+            });
+
+            // 3. Invert Current Brush
+            const picker = document.getElementById('colorPicker');
+            if(picker.value === '#000000' && isDarkMode) picker.value = '#ffffff';
+            if(picker.value === '#ffffff' && !isDarkMode) picker.value = '#000000';
+            
+            updateBrush();
+            canvas.renderAll();
+            saveLocally();
+        }
+
+        // --- 3. INFINITE ZOOM & PAN ---
+        canvas.on('mouse:wheel', function(opt) {
+            var delta = opt.e.deltaY;
+            var zoom = canvas.getZoom();
+            zoom *= 0.999 ** delta;
+            if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
+            canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+            opt.e.preventDefault();
+            opt.e.stopPropagation();
+        });
+
+        let isDragging = false, lastPosX, lastPosY;
+        canvas.on('mouse:down', function(opt) {
+            if (currentMode === 'pan' || opt.e.altKey) {
+                isDragging = true; canvas.isDrawingMode = false;
+                lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
+            }
+        });
+        canvas.on('mouse:move', function(opt) {
+            if (isDragging) {
+                var vpt = canvas.viewportTransform;
+                vpt[4] += opt.e.clientX - lastPosX; vpt[5] += opt.e.clientY - lastPosY;
+                canvas.requestRenderAll();
+                lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
+            }
+        });
+        canvas.on('mouse:up', () => { isDragging = false; if(currentMode !== 'pan') canvas.isDrawingMode = true; });
+
+        // --- 4. TOOLS & EXPORT ---
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            
+            if (mode === 'draw') {
+                canvas.freeDrawingBrush = pencilBrush;
+                canvas.isDrawingMode = true;
+                canvas.defaultCursor = 'default';
+                document.getElementById('btn-draw').classList.add('active');
+            } else if (mode === 'erase') {
+                canvas.freeDrawingBrush = eraserBrush;
+                canvas.isDrawingMode = true;
+                canvas.defaultCursor = 'crosshair';
+                document.getElementById('btn-erase').classList.add('active');
+            } else if (mode === 'pan') {
+                canvas.isDrawingMode = false;
+                canvas.defaultCursor = 'grab';
+                document.getElementById('btn-pan').classList.add('active');
+            }
+        }
+
+        function updateBrush() {
+            pencilBrush.color = document.getElementById('colorPicker').value;
+            pencilBrush.width = parseInt(document.getElementById('sizeSlider').value, 10);
+        }
+
+        function clearCanvas() { if(confirm("Clear AnantBoard?")) { canvas.clear(); toggleDarkMode(); toggleDarkMode(); } } // Toggle resets bg
+
+        function exportImage() {
+            const ext = canvas.viewportTransform;
+            canvas.setViewportTransform([1,0,0,1,0,0]); // Reset zoom for clean screenshot
+            const dataURL = canvas.toDataURL({ format: 'png', multiplier: 2 });
+            const link = document.createElement('a');
+            link.download = 'anantboard-note.png';
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            canvas.setViewportTransform(ext); // Restore zoom
+        }
+
+        // --- 5. AUTO-SAVE SYSTEM ---
+        canvas.on('path:created', saveLocally);
+        canvas.on('object:modified', saveLocally);
+        
+        function saveLocally() {
+            localStorage.setItem('anantboard_data', JSON.stringify(canvas.toJSON()));
+            localStorage.setItem('anantboard_dark', isDarkMode);
+        }
+
+        window.onload = function() {
+            // Restore Dark Mode
+            if (localStorage.getItem('anantboard_dark') === 'true') toggleDarkMode();
+            
+            // Restore Drawings
+            const saved = localStorage.getItem('anantboard_data');
+            if (saved) {
+                canvas.loadFromJSON(saved, function() {
+                    canvas.renderAll();
+                });
+            }
+        };
+
+        window.addEventListener('resize', () => { canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); });
+
+        // --- 6. PWA INSTALL LOGIC ---
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); deferredPrompt = e;
+            document.getElementById('install-btn').style.display = 'inline-block';
+        });
+        async function installApp() {
+            if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; }
+        }
+    </script>
+</body>
+</html>
