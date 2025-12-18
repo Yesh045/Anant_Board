@@ -9,9 +9,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        /* [STYLES UNCHANGED - SAME AS BEFORE] */
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; touch-action: none; /* Critical for mobile handling */ }
         
-        /* --- SIDEBAR (FILE SYSTEM) --- */
         #sidebar {
             position: absolute; top: 0; left: -260px; width: 250px; height: 100%;
             background: rgba(255, 255, 255, 0.98); border-right: 1px solid #ddd;
@@ -19,19 +19,13 @@
             box-shadow: 2px 0 10px rgba(0,0,0,0.1); display: flex; flex-direction: column;
         }
         #sidebar.open { left: 0; }
-        
         body.dark-mode #sidebar { background: #222; border-right: 1px solid #444; color: white; }
 
         .sidebar-header { font-size: 20px; font-weight: bold; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         .file-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-        
-        .file-item {
-            padding: 10px; border-radius: 8px; cursor: pointer; background: #f5f5f5;
-            display: flex; justify-content: space-between; align-items: center;
-        }
+        .file-item { padding: 10px; border-radius: 8px; cursor: pointer; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center; }
         .file-item:hover { background: #eee; }
         .file-item.active { background: #000; color: white; }
-        
         body.dark-mode .file-item { background: #333; }
         body.dark-mode .file-item:hover { background: #444; }
         body.dark-mode .file-item.active { background: #fff; color: black; }
@@ -39,7 +33,6 @@
         .btn-new { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }
         .btn-delete { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 14px; padding: 5px; }
 
-        /* --- TOOLBAR --- */
         #toolbar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
             background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
@@ -50,7 +43,6 @@
         }
         body.dark-mode #toolbar { background: rgba(40, 40, 40, 0.95); border: 1px solid rgba(255,255,255,0.1); color: white; }
 
-        /* Menu Button (Hamburger) */
         #menu-btn { position: absolute; top: 20px; left: 20px; z-index: 2001; background: white; border: none; padding: 10px; border-radius: 50%; box-shadow: 0 2px 10px rgba(0,0,0,0.1); cursor: pointer; }
         body.dark-mode #menu-btn { background: #333; color: white; }
 
@@ -60,7 +52,6 @@
         body.dark-mode .tool-btn.active { background: #fff; color: #000; }
 
         .divider { width: 1px; height: 24px; background: #ddd; }
-        
         .color-group { display: flex; gap: 6px; align-items: center; }
         .color-swatch { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid rgba(0,0,0,0.1); transition: transform 0.1s; }
         .color-swatch.active { border: 2px solid #000; transform: scale(1.1); }
@@ -68,6 +59,8 @@
 
         input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; }
         input[type="range"] { width: 80px; cursor: pointer; }
+        
+        #install-btn { display: none; font-size: 12px; font-weight: bold; color: #007bff; cursor: pointer; padding: 5px 10px; background: #eef7ff; border-radius: 20px; }
     </style>
 </head>
 <body>
@@ -79,17 +72,14 @@
             <span onclick="toggleSidebar()" style="cursor:pointer; font-size:14px">✕</span>
         </div>
         <button class="btn-new" onclick="createNewBoard()">+ New Board</button>
-        <div class="file-list" id="fileList">
-            </div>
+        <div class="file-list" id="fileList"></div>
     </div>
 
     <div id="toolbar">
         <button class="tool-btn active" id="btn-draw" onclick="setMode('draw')" title="Pen">✏️</button>
         <button class="tool-btn" id="btn-erase" onclick="setMode('erase')" title="Eraser">🧹</button>
         <button class="tool-btn" id="btn-pan" onclick="setMode('pan')" title="Hand">✋</button>
-        
         <div class="divider"></div>
-        
         <div class="color-group">
             <div class="color-swatch active" style="background: #000000;" onclick="pickColor('#000000', this)"></div>
             <div class="color-swatch" style="background: #0044ff;" onclick="pickColor('#0044ff', this)"></div>
@@ -97,23 +87,26 @@
             <div class="color-swatch" style="background: #00aa00;" onclick="pickColor('#00aa00', this)"></div>
             <input type="color" id="colorPicker" value="#000000" onchange="pickColor(this.value, null)">
         </div>
-
         <div class="divider"></div>
-
         <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush()">
-
         <div class="divider"></div>
-
         <button class="tool-btn" onclick="toggleDarkMode()" title="Dark Mode">🌙</button>
-        <button class="tool-btn" onclick="exportFullPDF()" title="Download Full PDF">📄 PDF</button>
+        <button class="tool-btn" onclick="exportFullPDF()" title="Download PDF">📄 PDF</button>
         <button class="tool-btn" onclick="clearCanvas()" title="Clear">🗑️</button>
+        <span id="install-btn" onclick="installApp()">⬇ App</span>
     </div>
 
     <canvas id="c"></canvas>
 
     <script>
-        // --- 1. SETUP ---
-        const canvas = new fabric.Canvas('c', { isDrawingMode: true, width: window.innerWidth, height: window.innerHeight, backgroundColor: '#ffffff' });
+        // 1. SETUP
+        const canvas = new fabric.Canvas('c', { 
+            isDrawingMode: true, 
+            width: window.innerWidth, 
+            height: window.innerHeight, 
+            backgroundColor: '#ffffff' 
+        });
+
         const pencilBrush = new fabric.PencilBrush(canvas);
         const eraserBrush = new fabric.PencilBrush(canvas);
         eraserBrush.color = "#ffffff";
@@ -121,16 +114,14 @@
         let currentMode = 'draw';
         let isDarkMode = false;
         let baseBrushSize = 3;
-        
-        // --- FILE SYSTEM VARIABLES ---
         let currentBoardId = 'default_board';
         const BOARDS_KEY = 'anant_boards_index';
 
-        // --- 2. BRUSH & ZOOM LOGIC ---
+        // 2. BRUSH & ZOOM LOGIC
         function updateBrush() {
             baseBrushSize = parseInt(document.getElementById('sizeSlider').value, 10);
             const zoom = canvas.getZoom();
-            const effectiveWidth = baseBrushSize / zoom;
+            const effectiveWidth = baseBrushSize / zoom; // Math to keep size constant on screen
 
             if (currentMode === 'draw') {
                 canvas.freeDrawingBrush = pencilBrush;
@@ -142,32 +133,77 @@
             }
         }
 
+        // --- MOUSE WHEEL ZOOM ---
         canvas.on('mouse:wheel', function(opt) {
             var delta = opt.e.deltaY;
             var zoom = canvas.getZoom();
             zoom *= 0.999 ** delta;
             if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
             canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
-            updateBrush(); // Keep brush visual size constant
+            updateBrush(); 
             opt.e.preventDefault(); opt.e.stopPropagation();
         });
 
-        // --- 3. FILE SYSTEM LOGIC (NEW) ---
-        
+        // --- NEW: TOUCH PINCH-TO-ZOOM (ANDROID/IOS) ---
+        let lastTouchDistance = 0;
+        let isTouchZooming = false;
+
+        canvas.upperCanvasEl.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 2) {
+                isTouchZooming = true;
+                canvas.isDrawingMode = false; // Disable drawing when pinching
+                // Calculate initial distance between fingers
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                lastTouchDistance = Math.sqrt(dx*dx + dy*dy);
+            }
+        });
+
+        canvas.upperCanvasEl.addEventListener('touchmove', function(e) {
+            if (isTouchZooming && e.touches.length === 2) {
+                e.preventDefault(); // Prevent page scroll
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const newDistance = Math.sqrt(dx*dx + dy*dy);
+                
+                // Calculate zoom factor
+                const zoomFactor = newDistance / lastTouchDistance;
+                let newZoom = canvas.getZoom() * zoomFactor;
+
+                // Limit Zoom
+                if (newZoom > 20) newZoom = 20;
+                if (newZoom < 0.1) newZoom = 0.1;
+
+                // Zoom to center of the two fingers
+                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                
+                canvas.zoomToPoint({ x: centerX, y: centerY }, newZoom);
+                updateBrush();
+                lastTouchDistance = newDistance;
+            }
+        });
+
+        canvas.upperCanvasEl.addEventListener('touchend', function(e) {
+            if (isTouchZooming && e.touches.length < 2) {
+                isTouchZooming = false;
+                if (currentMode === 'draw' || currentMode === 'erase') {
+                    canvas.isDrawingMode = true; // Re-enable drawing
+                }
+            }
+        });
+
+        // 3. FILE SYSTEM & SIDEBAR
         function getBoardList() {
             const list = localStorage.getItem(BOARDS_KEY);
             return list ? JSON.parse(list) : [{id: 'default_board', name: 'General Notes'}];
         }
-
-        function saveBoardList(list) {
-            localStorage.setItem(BOARDS_KEY, JSON.stringify(list));
-        }
+        function saveBoardList(list) { localStorage.setItem(BOARDS_KEY, JSON.stringify(list)); }
 
         function renderSidebar() {
             const list = getBoardList();
             const container = document.getElementById('fileList');
             container.innerHTML = '';
-            
             list.forEach(board => {
                 const div = document.createElement('div');
                 div.className = `file-item ${board.id === currentBoardId ? 'active' : ''}`;
@@ -180,76 +216,49 @@
         }
 
         function createNewBoard() {
-            const name = prompt("Enter Name for new notes:");
+            const name = prompt("Name your new board:");
             if (!name) return;
-            
-            // 1. Save current
             saveLocally();
-            
-            // 2. Create new entry
             const list = getBoardList();
             const newId = 'board_' + Date.now();
             list.push({ id: newId, name: name });
             saveBoardList(list);
-            
-            // 3. Switch to it (Clear canvas)
             currentBoardId = newId;
-            canvas.clear();
-            canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff';
-            saveLocally(); // Save the new empty state
-            renderSidebar();
-            toggleSidebar(); // Close menu
+            canvas.clear(); canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff';
+            saveLocally(); renderSidebar(); toggleSidebar();
         }
 
         function switchBoard(id) {
             if (id === currentBoardId) return;
-            saveLocally(); // Save old
-            currentBoardId = id;
-            
-            // Load new
+            saveLocally(); currentBoardId = id;
             const saved = localStorage.getItem(currentBoardId);
-            if (saved) {
-                canvas.loadFromJSON(saved, function() {
-                    canvas.renderAll();
-                    updateDarkModeVisuals(); // Ensure colors match theme
-                });
-            } else {
-                canvas.clear(); // Should not happen if logic is correct
-            }
+            if (saved) canvas.loadFromJSON(saved, () => { canvas.renderAll(); updateDarkModeVisuals(); });
             renderSidebar();
         }
 
         function deleteBoard(id) {
-            if (!confirm("Delete this board forever?")) return;
+            if (!confirm("Delete this board?")) return;
             let list = getBoardList();
             list = list.filter(b => b.id !== id);
-            saveBoardList(list);
-            localStorage.removeItem(id); // Clean up data
-            
-            // If we deleted current board, switch to first available
-            if (id === currentBoardId) {
-                currentBoardId = list[0].id;
-                switchBoard(currentBoardId);
-            } else {
-                renderSidebar();
-            }
+            saveBoardList(list); localStorage.removeItem(id);
+            if (id === currentBoardId) { currentBoardId = list[0].id; switchBoard(currentBoardId); } 
+            else { renderSidebar(); }
         }
 
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('open');
-        }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 
-        // --- 4. EXPORT TO PDF (SMART LOGIC) ---
+        // --- 4. FIXED PDF EXPORT (RE-RENDERING ENGINE) ---
         function exportFullPDF() {
-            if (canvas.getObjects().length === 0) {
-                alert("Canvas is empty!");
-                return;
-            }
+            if (canvas.getObjects().length === 0) { alert("Board is empty!"); return; }
+            
+            // 1. Save current User View (so we can restore it later)
+            const originalVpt = canvas.viewportTransform.slice();
+            const originalWidth = canvas.getWidth();
+            const originalHeight = canvas.getHeight();
 
-            // 1. Calculate the bounding box of ALL objects
+            // 2. Calculate Bounds of all objects
             const objects = canvas.getObjects();
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
             objects.forEach(obj => {
                 const rect = obj.getBoundingRect();
                 if(rect.left < minX) minX = rect.left;
@@ -257,65 +266,65 @@
                 if(rect.left + rect.width > maxX) maxX = rect.left + rect.width;
                 if(rect.top + rect.height > maxY) maxY = rect.top + rect.height;
             });
-
-            // Add some padding
+            
+            // Add Padding
             const padding = 50;
             minX -= padding; minY -= padding;
             maxX += padding; maxY += padding;
-            const width = maxX - minX;
-            const height = maxY - minY;
+            const contentWidth = maxX - minX;
+            const contentHeight = maxY - minY;
 
-            // 2. Save current Viewport
-            const originalVpt = canvas.viewportTransform;
-            const originalWidth = canvas.width;
-            const originalHeight = canvas.height;
+            // 3. Resize Canvas to fit the WHOLE content
+            canvas.setWidth(contentWidth);
+            canvas.setHeight(contentHeight);
 
-            // 3. Adjust canvas to fit the WHOLE drawing
-            canvas.setWidth(width);
-            canvas.setHeight(height);
-            // Move the "Camera" to look at the drawing
+            // 4. Move Camera to focus on content (Zoom 1:1, Offset to Top-Left)
             canvas.setViewportTransform([1, 0, 0, 1, -minX, -minY]);
-
-            // 4. Create PDF
-            const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1.5 }); // 1.5x quality
-            const { jsPDF } = window.jspdf;
             
-            // Create a PDF with the exact size of your drawing (Digital Note style)
-            // Units are in points (1px approx 0.75pt)
-            const pdf = new jsPDF({
-                orientation: width > height ? 'landscape' : 'portrait',
-                unit: 'px',
-                format: [width, height]
-            });
-            
-            pdf.addImage(dataUrl, 'PNG', 0, 0, width, height);
-            pdf.save(`${currentBoardId}.pdf`);
+            // 5. Force Render (CRITICAL STEP)
+            canvas.renderAll();
 
-            // 5. Restore User View
+            // 6. Generate PDF
+            try {
+                const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1 });
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({
+                    orientation: contentWidth > contentHeight ? 'landscape' : 'portrait',
+                    unit: 'px',
+                    format: [contentWidth, contentHeight]
+                });
+                pdf.addImage(dataUrl, 'PNG', 0, 0, contentWidth, contentHeight);
+                pdf.save(`${currentBoardId}.pdf`);
+            } catch (err) {
+                alert("Error generating PDF: Canvas might be too large.");
+                console.error(err);
+            }
+
+            // 7. Restore User View
             canvas.setWidth(originalWidth);
             canvas.setHeight(originalHeight);
             canvas.setViewportTransform(originalVpt);
+            canvas.renderAll();
         }
 
-        // --- 5. STANDARD LOGIC (Pan, Colors, Save) ---
-        function saveLocally() {
-            localStorage.setItem(currentBoardId, JSON.stringify(canvas.toJSON()));
-        }
-        
+        // 5. STANDARD LOGIC
+        function saveLocally() { localStorage.setItem(currentBoardId, JSON.stringify(canvas.toJSON())); }
         canvas.on('path:created', saveLocally);
         canvas.on('object:modified', saveLocally);
         
         window.onload = function() {
             renderSidebar();
-            // Load the default or last active board
             const saved = localStorage.getItem(currentBoardId);
-            if (saved) canvas.loadFromJSON(saved);
+            if (saved) canvas.loadFromJSON(saved, () => { canvas.renderAll(); updateBrush(); });
+            
+            // PWA Install Prompt
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault(); deferredPrompt = e;
+                document.getElementById('install-btn').style.display = 'inline-block';
+            });
         };
 
-        // ... [Include Pan, Color Pick, Dark Mode, Resize logic from previous version here] ...
-        // (Simplified for brevity, but copy the Helper Functions below to make it work)
-
-        // HELPER FUNCTIONS (Copy these exactly)
+        // Pan Logic
         let isDragging = false, lastPosX, lastPosY;
         canvas.on('mouse:down', function(opt) {
             if (currentMode === 'pan' || opt.e.altKey) {
@@ -352,8 +361,7 @@
         function toggleDarkMode() {
             isDarkMode = !isDarkMode;
             document.body.classList.toggle('dark-mode');
-            updateDarkModeVisuals();
-            saveLocally();
+            updateDarkModeVisuals(); saveLocally();
         }
 
         function updateDarkModeVisuals() {
@@ -369,6 +377,9 @@
 
         function clearCanvas() { if(confirm("Clear current notes?")) { canvas.clear(); updateDarkModeVisuals(); saveLocally(); } }
         window.addEventListener('resize', () => { canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); });
+        
+        let deferredPrompt;
+        async function installApp() { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } }
     </script>
 </body>
 </html>
