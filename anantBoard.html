@@ -9,18 +9,18 @@
     <style>
         body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         
-        /* Floating "Island" Toolbar */
+        /* --- TOOLBAR STYLES --- */
         #toolbar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
             background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            padding: 8px 20px; border-radius: 16px;
+            padding: 8px 16px; border-radius: 16px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
             display: flex; gap: 12px; align-items: center; z-index: 1000;
             border: 1px solid rgba(0,0,0,0.05);
-            transition: all 0.3s ease;
+            flex-wrap: wrap; /* Allows wrapping on small phones */
+            justify-content: center;
         }
 
-        /* Dark Mode Styles for Toolbar */
         body.dark-mode #toolbar {
             background: rgba(40, 40, 40, 0.95);
             border: 1px solid rgba(255,255,255,0.1);
@@ -33,18 +33,24 @@
         }
         .tool-btn:hover { background: rgba(0,0,0,0.05); opacity: 1; }
         .tool-btn.active { background: #000; color: white; opacity: 1; }
-        
-        /* Dark mode button adjustments */
-        body.dark-mode .tool-btn:hover { background: rgba(255,255,255,0.1); }
         body.dark-mode .tool-btn.active { background: #fff; color: #000; }
 
-        .divider { width: 1px; height: 20px; background: #ddd; }
-        body.dark-mode .divider { background: #555; }
+        .divider { width: 1px; height: 24px; background: #ddd; }
 
-        input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; border-radius: 50%; overflow: hidden; }
-        input[type="range"] { width: 70px; accent-color: #000; }
+        /* --- NEW COLOR PALETTE --- */
+        .color-group { display: flex; gap: 6px; align-items: center; }
+        .color-swatch {
+            width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+            border: 2px solid rgba(0,0,0,0.1); transition: transform 0.1s;
+        }
+        .color-swatch:hover { transform: scale(1.2); }
+        .color-swatch.active { border: 2px solid #000; transform: scale(1.1); }
+        body.dark-mode .color-swatch.active { border-color: #fff; }
+
+        input[type="color"] { border: none; width: 24px; height: 24px; cursor: pointer; background: none; padding: 0; }
+        input[type="range"] { width: 80px; accent-color: #000; cursor: pointer; }
         body.dark-mode input[type="range"] { accent-color: #fff; }
-
+        
         #install-btn { display: none; font-size: 12px; font-weight: bold; color: #007bff; cursor: pointer; padding: 5px 10px; background: #eef7ff; border-radius: 20px; }
     </style>
 </head>
@@ -57,14 +63,25 @@
         
         <div class="divider"></div>
         
-        <input type="color" id="colorPicker" value="#000000" onchange="updateBrush()">
-        <input type="range" id="sizeSlider" min="1" max="50" value="3" oninput="updateBrush()" title="Thickness">
-        
+        <div class="color-group">
+            <div class="color-swatch active" style="background: #000000;" onclick="pickColor('#000000', this)" title="Black"></div>
+            <div class="color-swatch" style="background: #0044ff;" onclick="pickColor('#0044ff', this)" title="Blue"></div>
+            <div class="color-swatch" style="background: #ff0000;" onclick="pickColor('#ff0000', this)" title="Red"></div>
+            <div class="color-swatch" style="background: #00aa00;" onclick="pickColor('#00aa00', this)" title="Green"></div>
+            <div class="color-swatch" style="background: #ffcc00;" onclick="pickColor('#ffcc00', this)" title="Yellow"></div>
+            
+            <input type="color" id="colorPicker" value="#000000" onchange="pickColor(this.value, null)" title="Custom Color">
+        </div>
+
+        <div class="divider"></div>
+
+        <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush()" title="Thickness">
+
         <div class="divider"></div>
 
         <button class="tool-btn" onclick="toggleDarkMode()" title="Dark Mode">🌙</button>
-        <button class="tool-btn" onclick="exportImage()" title="Export Image">📷</button>
-        <button class="tool-btn" onclick="clearCanvas()" title="Clear Board">🗑️</button>
+        <button class="tool-btn" onclick="exportImage()" title="Save Image">📷</button>
+        <button class="tool-btn" onclick="clearCanvas()" title="Clear All">🗑️</button>
         
         <span id="install-btn" onclick="installApp()">⬇ App</span>
     </div>
@@ -82,52 +99,67 @@
 
         const pencilBrush = new fabric.PencilBrush(canvas);
         const eraserBrush = new fabric.PencilBrush(canvas);
-        eraserBrush.width = 30;
-        eraserBrush.color = "#ffffff"; // Eraser paints background color
+        eraserBrush.color = "#ffffff"; // Eraser is just white paint
 
         let currentMode = 'draw';
         let isDarkMode = false;
+        let baseBrushSize = 3; // We store the slider value here
 
-        // --- 2. DARK MODE LOGIC (The "Magic" Part) ---
-        function toggleDarkMode() {
-            isDarkMode = !isDarkMode;
-            document.body.classList.toggle('dark-mode');
+        // --- 2. BRUSH & ZOOM LOGIC (THE FIX) ---
+        function updateBrush() {
+            // Get slider value
+            baseBrushSize = parseInt(document.getElementById('sizeSlider').value, 10);
             
-            // 1. Change Background
-            const newBg = isDarkMode ? '#1a1a1a' : '#ffffff';
-            canvas.backgroundColor = newBg;
-            eraserBrush.color = newBg; // Eraser must match background
+            // Calculate "Screen-Constant" size
+            // If we zoom in (zoom > 1), we make the brush smaller so it looks the same width on screen
+            const zoom = canvas.getZoom();
+            const effectiveWidth = baseBrushSize / zoom;
 
-            // 2. Invert Existing Strokes (Magic Fix)
-            canvas.getObjects().forEach(obj => {
-                if (obj.stroke === '#000000' && isDarkMode) {
-                    obj.set('stroke', '#ffffff');
-                } else if (obj.stroke === '#ffffff' && !isDarkMode) {
-                    obj.set('stroke', '#000000');
-                }
-            });
-
-            // 3. Invert Current Brush
-            const picker = document.getElementById('colorPicker');
-            if(picker.value === '#000000' && isDarkMode) picker.value = '#ffffff';
-            if(picker.value === '#ffffff' && !isDarkMode) picker.value = '#000000';
-            
-            updateBrush();
-            canvas.renderAll();
-            saveLocally();
+            if (currentMode === 'draw') {
+                canvas.freeDrawingBrush = pencilBrush;
+                pencilBrush.width = effectiveWidth;
+                pencilBrush.color = document.getElementById('colorPicker').value;
+            } else if (currentMode === 'erase') {
+                canvas.freeDrawingBrush = eraserBrush;
+                eraserBrush.width = effectiveWidth * 5; // Eraser is naturally 5x wider than pen
+            }
         }
 
-        // --- 3. INFINITE ZOOM & PAN ---
+        // --- 3. COLOR LOGIC ---
+        function pickColor(hex, swatchElement) {
+            // Update the hidden picker
+            const picker = document.getElementById('colorPicker');
+            picker.value = hex;
+            
+            // Visual feedback on swatches
+            document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('active'));
+            if(swatchElement) swatchElement.classList.add('active');
+
+            // Switch back to draw mode if user clicks a color
+            if(currentMode !== 'draw') setMode('draw');
+            updateBrush();
+        }
+
+        // --- 4. ZOOM & PAN ENGINE ---
         canvas.on('mouse:wheel', function(opt) {
             var delta = opt.e.deltaY;
             var zoom = canvas.getZoom();
             zoom *= 0.999 ** delta;
-            if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
+            
+            // Limit zoom
+            if (zoom > 20) zoom = 20; 
+            if (zoom < 0.01) zoom = 0.01;
+            
             canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+            
+            // CRITICAL: Update brush size immediately after zooming
+            updateBrush();
+            
             opt.e.preventDefault();
             opt.e.stopPropagation();
         });
 
+        // Pan Logic
         let isDragging = false, lastPosX, lastPosY;
         canvas.on('mouse:down', function(opt) {
             if (currentMode === 'pan' || opt.e.altKey) {
@@ -143,75 +175,74 @@
                 lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
             }
         });
-        canvas.on('mouse:up', () => { isDragging = false; if(currentMode !== 'pan') canvas.isDrawingMode = true; });
+        canvas.on('mouse:up', () => { 
+            isDragging = false; 
+            if(currentMode !== 'pan') canvas.isDrawingMode = true; 
+        });
 
-        // --- 4. TOOLS & EXPORT ---
+        // --- 5. TOOL SWITCHING ---
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${mode}`).classList.add('active');
             
-            if (mode === 'draw') {
-                canvas.freeDrawingBrush = pencilBrush;
-                canvas.isDrawingMode = true;
-                canvas.defaultCursor = 'default';
-                document.getElementById('btn-draw').classList.add('active');
-            } else if (mode === 'erase') {
-                canvas.freeDrawingBrush = eraserBrush;
-                canvas.isDrawingMode = true;
-                canvas.defaultCursor = 'crosshair';
-                document.getElementById('btn-erase').classList.add('active');
-            } else if (mode === 'pan') {
+            if (mode === 'pan') {
                 canvas.isDrawingMode = false;
                 canvas.defaultCursor = 'grab';
-                document.getElementById('btn-pan').classList.add('active');
+            } else {
+                canvas.isDrawingMode = true;
+                canvas.defaultCursor = mode === 'erase' ? 'crosshair' : 'default';
+                updateBrush(); // Apply correct brush/eraser size
             }
         }
 
-        function updateBrush() {
-            pencilBrush.color = document.getElementById('colorPicker').value;
-            pencilBrush.width = parseInt(document.getElementById('sizeSlider').value, 10);
+        // --- 6. DARK MODE ---
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark-mode');
+            
+            const newBg = isDarkMode ? '#1a1a1a' : '#ffffff';
+            canvas.backgroundColor = newBg;
+            eraserBrush.color = newBg;
+
+            // Invert colors to make them visible
+            canvas.getObjects().forEach(obj => {
+                if (obj.stroke === '#000000' && isDarkMode) obj.set('stroke', '#ffffff');
+                else if (obj.stroke === '#ffffff' && !isDarkMode) obj.set('stroke', '#000000');
+            });
+            
+            // If current color is black, auto-switch picker for the user
+            const picker = document.getElementById('colorPicker');
+            if(picker.value === '#000000' && isDarkMode) picker.value = '#ffffff';
+            if(picker.value === '#ffffff' && !isDarkMode) picker.value = '#000000';
+
+            updateBrush();
+            canvas.renderAll();
         }
 
-        function clearCanvas() { if(confirm("Clear AnantBoard?")) { canvas.clear(); toggleDarkMode(); toggleDarkMode(); } } // Toggle resets bg
-
+        // --- 7. EXPORT & SYSTEM ---
+        function clearCanvas() { if(confirm("Clear AnantBoard?")) { canvas.clear(); canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff'; } }
+        
         function exportImage() {
-            const ext = canvas.viewportTransform;
+            const vpt = canvas.viewportTransform;
             canvas.setViewportTransform([1,0,0,1,0,0]); // Reset zoom for clean screenshot
             const dataURL = canvas.toDataURL({ format: 'png', multiplier: 2 });
             const link = document.createElement('a');
             link.download = 'anantboard-note.png';
             link.href = dataURL;
-            document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
-            canvas.setViewportTransform(ext); // Restore zoom
+            canvas.setViewportTransform(vpt); // Restore zoom
         }
 
-        // --- 5. AUTO-SAVE SYSTEM ---
-        canvas.on('path:created', saveLocally);
-        canvas.on('object:modified', saveLocally);
-        
-        function saveLocally() {
-            localStorage.setItem('anantboard_data', JSON.stringify(canvas.toJSON()));
-            localStorage.setItem('anantboard_dark', isDarkMode);
-        }
-
-        window.onload = function() {
-            // Restore Dark Mode
-            if (localStorage.getItem('anantboard_dark') === 'true') toggleDarkMode();
-            
-            // Restore Drawings
-            const saved = localStorage.getItem('anantboard_data');
-            if (saved) {
-                canvas.loadFromJSON(saved, function() {
-                    canvas.renderAll();
-                });
-            }
+        // Auto Save
+        canvas.on('path:created', () => localStorage.setItem('anant_data', JSON.stringify(canvas.toJSON())));
+        window.onload = () => {
+            const saved = localStorage.getItem('anant_data');
+            if(saved) canvas.loadFromJSON(saved);
         };
-
         window.addEventListener('resize', () => { canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); });
 
-        // --- 6. PWA INSTALL LOGIC ---
+        // PWA Install
         let deferredPrompt;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault(); deferredPrompt = e;
@@ -220,6 +251,9 @@
         async function installApp() {
             if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; }
         }
+
+        // Initialize
+        updateBrush();
     </script>
 </body>
 </html>
