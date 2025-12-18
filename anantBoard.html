@@ -9,9 +9,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <style>
-        /* [STYLES UNCHANGED - SAME AS BEFORE] */
-        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; touch-action: none; /* Critical for mobile handling */ }
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; touch-action: none; }
         
+        /* BRUSH PREVIEW (NEW) */
+        #brushPreview {
+            position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            border-radius: 50%;
+            border: 2px solid rgba(0,0,0,0.2);
+            pointer-events: none; /* Let clicks pass through */
+            z-index: 5000;
+            display: none; /* Hidden by default */
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            transition: width 0.1s, height 0.1s, background-color 0.2s;
+        }
+
+        /* SIDEBAR STYLES */
         #sidebar {
             position: absolute; top: 0; left: -260px; width: 250px; height: 100%;
             background: rgba(255, 255, 255, 0.98); border-right: 1px solid #ddd;
@@ -20,7 +33,6 @@
         }
         #sidebar.open { left: 0; }
         body.dark-mode #sidebar { background: #222; border-right: 1px solid #444; color: white; }
-
         .sidebar-header { font-size: 20px; font-weight: bold; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         .file-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
         .file-item { padding: 10px; border-radius: 8px; cursor: pointer; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center; }
@@ -29,10 +41,10 @@
         body.dark-mode .file-item { background: #333; }
         body.dark-mode .file-item:hover { background: #444; }
         body.dark-mode .file-item.active { background: #fff; color: black; }
-
         .btn-new { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }
         .btn-delete { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 14px; padding: 5px; }
 
+        /* TOOLBAR STYLES */
         #toolbar {
             position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
             background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
@@ -50,6 +62,7 @@
         .tool-btn:hover { background: rgba(0,0,0,0.05); opacity: 1; }
         .tool-btn.active { background: #000; color: white; opacity: 1; }
         body.dark-mode .tool-btn.active { background: #fff; color: #000; }
+        .tool-btn.danger:hover { background: #ff4444; color: white; opacity: 1; }
 
         .divider { width: 1px; height: 24px; background: #ddd; }
         .color-group { display: flex; gap: 6px; align-items: center; }
@@ -65,6 +78,8 @@
 </head>
 <body>
 
+    <div id="brushPreview"></div>
+
     <button id="menu-btn" onclick="toggleSidebar()">☰</button>
     <div id="sidebar">
         <div class="sidebar-header">
@@ -76,6 +91,12 @@
     </div>
 
     <div id="toolbar">
+        <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">↶</button>
+        <button class="tool-btn" onclick="redo()" title="Redo (Ctrl+Y)">↷</button>
+        <div class="divider"></div>
+        <button class="tool-btn" id="btn-select" onclick="setMode('select')" title="Select">↖️</button>
+        <button class="tool-btn danger" onclick="deleteSelected()" title="Delete">❌</button>
+        <div class="divider"></div>
         <button class="tool-btn active" id="btn-draw" onclick="setMode('draw')" title="Pen">✏️</button>
         <button class="tool-btn" id="btn-erase" onclick="setMode('erase')" title="Eraser">🧹</button>
         <button class="tool-btn" id="btn-pan" onclick="setMode('pan')" title="Hand">✋</button>
@@ -88,10 +109,10 @@
             <input type="color" id="colorPicker" value="#000000" onchange="pickColor(this.value, null)">
         </div>
         <div class="divider"></div>
-        <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush()">
+        <input type="range" id="sizeSlider" min="1" max="100" value="3" oninput="updateBrush(true)">
         <div class="divider"></div>
         <button class="tool-btn" onclick="toggleDarkMode()" title="Dark Mode">🌙</button>
-        <button class="tool-btn" onclick="exportFullPDF()" title="Download PDF">📄 PDF</button>
+        <button class="tool-btn" onclick="exportFullPDF()" title="PDF">📄 PDF</button>
         <button class="tool-btn" onclick="clearCanvas()" title="Clear">🗑️</button>
         <span id="install-btn" onclick="installApp()">⬇ App</span>
     </div>
@@ -99,12 +120,14 @@
     <canvas id="c"></canvas>
 
     <script>
-        // 1. SETUP
+        // --- 1. SETUP ---
         const canvas = new fabric.Canvas('c', { 
             isDrawingMode: true, 
             width: window.innerWidth, 
             height: window.innerHeight, 
-            backgroundColor: '#ffffff' 
+            backgroundColor: '#ffffff',
+            selection: false,
+            skipTargetFind: true
         });
 
         const pencilBrush = new fabric.PencilBrush(canvas);
@@ -117,11 +140,16 @@
         let currentBoardId = 'default_board';
         const BOARDS_KEY = 'anant_boards_index';
 
-        // 2. BRUSH & ZOOM LOGIC
-        function updateBrush() {
+        // --- 2. BRUSH & PREVIEW LOGIC (NEW) ---
+        let previewTimeout;
+        
+        function updateBrush(showPreview = false) {
             baseBrushSize = parseInt(document.getElementById('sizeSlider').value, 10);
             const zoom = canvas.getZoom();
-            const effectiveWidth = baseBrushSize / zoom; // Math to keep size constant on screen
+            
+            // Screen logic: We want the size on SCREEN to match the slider
+            // So we divide by zoom (if zoomed in, brush size math gets smaller to look same)
+            const effectiveWidth = baseBrushSize / zoom;
 
             if (currentMode === 'draw') {
                 canvas.freeDrawingBrush = pencilBrush;
@@ -129,227 +157,153 @@
                 pencilBrush.color = document.getElementById('colorPicker').value;
             } else if (currentMode === 'erase') {
                 canvas.freeDrawingBrush = eraserBrush;
-                eraserBrush.width = effectiveWidth * 5;
+                eraserBrush.width = effectiveWidth * 5; // Eraser is 5x bigger
+            }
+
+            // --- PREVIEW LOGIC ---
+            if (showPreview) {
+                const preview = document.getElementById('brushPreview');
+                const color = currentMode === 'draw' ? pencilBrush.color : (isDarkMode ? '#333' : '#ccc');
+                const size = currentMode === 'draw' ? baseBrushSize : (baseBrushSize * 5); // Use SLIDER value for screen size
+
+                preview.style.width = size + 'px';
+                preview.style.height = size + 'px';
+                preview.style.backgroundColor = color;
+                preview.style.display = 'block';
+
+                // Hide after 1 second
+                clearTimeout(previewTimeout);
+                previewTimeout = setTimeout(() => {
+                    preview.style.display = 'none';
+                }, 1000);
             }
         }
 
-        // --- MOUSE WHEEL ZOOM ---
-        canvas.on('mouse:wheel', function(opt) {
-            var delta = opt.e.deltaY;
-            var zoom = canvas.getZoom();
-            zoom *= 0.999 ** delta;
-            if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
-            canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
-            updateBrush(); 
-            opt.e.preventDefault(); opt.e.stopPropagation();
-        });
-
-        // --- NEW: TOUCH PINCH-TO-ZOOM (ANDROID/IOS) ---
-        let lastTouchDistance = 0;
-        let isTouchZooming = false;
-
-        canvas.upperCanvasEl.addEventListener('touchstart', function(e) {
-            if (e.touches.length === 2) {
-                isTouchZooming = true;
-                canvas.isDrawingMode = false; // Disable drawing when pinching
-                // Calculate initial distance between fingers
-                const dx = e.touches[0].clientX - e.touches[1].clientX;
-                const dy = e.touches[0].clientY - e.touches[1].clientY;
-                lastTouchDistance = Math.sqrt(dx*dx + dy*dy);
-            }
-        });
-
-        canvas.upperCanvasEl.addEventListener('touchmove', function(e) {
-            if (isTouchZooming && e.touches.length === 2) {
-                e.preventDefault(); // Prevent page scroll
-                const dx = e.touches[0].clientX - e.touches[1].clientX;
-                const dy = e.touches[0].clientY - e.touches[1].clientY;
-                const newDistance = Math.sqrt(dx*dx + dy*dy);
-                
-                // Calculate zoom factor
-                const zoomFactor = newDistance / lastTouchDistance;
-                let newZoom = canvas.getZoom() * zoomFactor;
-
-                // Limit Zoom
-                if (newZoom > 20) newZoom = 20;
-                if (newZoom < 0.1) newZoom = 0.1;
-
-                // Zoom to center of the two fingers
-                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                
-                canvas.zoomToPoint({ x: centerX, y: centerY }, newZoom);
-                updateBrush();
-                lastTouchDistance = newDistance;
-            }
-        });
-
-        canvas.upperCanvasEl.addEventListener('touchend', function(e) {
-            if (isTouchZooming && e.touches.length < 2) {
-                isTouchZooming = false;
-                if (currentMode === 'draw' || currentMode === 'erase') {
-                    canvas.isDrawingMode = true; // Re-enable drawing
-                }
-            }
-        });
-
-        // 3. FILE SYSTEM & SIDEBAR
-        function getBoardList() {
-            const list = localStorage.getItem(BOARDS_KEY);
-            return list ? JSON.parse(list) : [{id: 'default_board', name: 'General Notes'}];
+        // --- 3. UNDO / REDO ---
+        let history = []; let historyIndex = -1; let isHistoryLocked = false;
+        function saveHistory() {
+            if (isHistoryLocked) return;
+            if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
+            history.push(JSON.stringify(canvas)); historyIndex++;
+            if (history.length > 50) { history.shift(); historyIndex--; }
         }
-        function saveBoardList(list) { localStorage.setItem(BOARDS_KEY, JSON.stringify(list)); }
-
-        function renderSidebar() {
-            const list = getBoardList();
-            const container = document.getElementById('fileList');
-            container.innerHTML = '';
-            list.forEach(board => {
-                const div = document.createElement('div');
-                div.className = `file-item ${board.id === currentBoardId ? 'active' : ''}`;
-                div.innerHTML = `
-                    <span onclick="switchBoard('${board.id}')">${board.name}</span>
-                    ${list.length > 1 ? `<button class="btn-delete" onclick="deleteBoard('${board.id}')">🗑</button>` : ''}
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        function createNewBoard() {
-            const name = prompt("Name your new board:");
-            if (!name) return;
-            saveLocally();
-            const list = getBoardList();
-            const newId = 'board_' + Date.now();
-            list.push({ id: newId, name: name });
-            saveBoardList(list);
-            currentBoardId = newId;
-            canvas.clear(); canvas.backgroundColor = isDarkMode ? '#1a1a1a' : '#ffffff';
-            saveLocally(); renderSidebar(); toggleSidebar();
-        }
-
-        function switchBoard(id) {
-            if (id === currentBoardId) return;
-            saveLocally(); currentBoardId = id;
-            const saved = localStorage.getItem(currentBoardId);
-            if (saved) canvas.loadFromJSON(saved, () => { canvas.renderAll(); updateDarkModeVisuals(); });
-            renderSidebar();
-        }
-
-        function deleteBoard(id) {
-            if (!confirm("Delete this board?")) return;
-            let list = getBoardList();
-            list = list.filter(b => b.id !== id);
-            saveBoardList(list); localStorage.removeItem(id);
-            if (id === currentBoardId) { currentBoardId = list[0].id; switchBoard(currentBoardId); } 
-            else { renderSidebar(); }
-        }
-
-        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-
-        // --- 4. FIXED PDF EXPORT (RE-RENDERING ENGINE) ---
-        function exportFullPDF() {
-            if (canvas.getObjects().length === 0) { alert("Board is empty!"); return; }
-            
-            // 1. Save current User View (so we can restore it later)
-            const originalVpt = canvas.viewportTransform.slice();
-            const originalWidth = canvas.getWidth();
-            const originalHeight = canvas.getHeight();
-
-            // 2. Calculate Bounds of all objects
-            const objects = canvas.getObjects();
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            objects.forEach(obj => {
-                const rect = obj.getBoundingRect();
-                if(rect.left < minX) minX = rect.left;
-                if(rect.top < minY) minY = rect.top;
-                if(rect.left + rect.width > maxX) maxX = rect.left + rect.width;
-                if(rect.top + rect.height > maxY) maxY = rect.top + rect.height;
-            });
-            
-            // Add Padding
-            const padding = 50;
-            minX -= padding; minY -= padding;
-            maxX += padding; maxY += padding;
-            const contentWidth = maxX - minX;
-            const contentHeight = maxY - minY;
-
-            // 3. Resize Canvas to fit the WHOLE content
-            canvas.setWidth(contentWidth);
-            canvas.setHeight(contentHeight);
-
-            // 4. Move Camera to focus on content (Zoom 1:1, Offset to Top-Left)
-            canvas.setViewportTransform([1, 0, 0, 1, -minX, -minY]);
-            
-            // 5. Force Render (CRITICAL STEP)
-            canvas.renderAll();
-
-            // 6. Generate PDF
-            try {
-                const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1 });
-                const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF({
-                    orientation: contentWidth > contentHeight ? 'landscape' : 'portrait',
-                    unit: 'px',
-                    format: [contentWidth, contentHeight]
+        function undo() {
+            if (historyIndex > 0) {
+                isHistoryLocked = true; historyIndex--;
+                canvas.loadFromJSON(history[historyIndex], function() {
+                    canvas.renderAll(); updateDarkModeVisuals(); isHistoryLocked = false; saveLocally();
                 });
-                pdf.addImage(dataUrl, 'PNG', 0, 0, contentWidth, contentHeight);
-                pdf.save(`${currentBoardId}.pdf`);
-            } catch (err) {
-                alert("Error generating PDF: Canvas might be too large.");
-                console.error(err);
             }
-
-            // 7. Restore User View
-            canvas.setWidth(originalWidth);
-            canvas.setHeight(originalHeight);
-            canvas.setViewportTransform(originalVpt);
-            canvas.renderAll();
+        }
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                isHistoryLocked = true; historyIndex++;
+                canvas.loadFromJSON(history[historyIndex], function() {
+                    canvas.renderAll(); updateDarkModeVisuals(); isHistoryLocked = false; saveLocally();
+                });
+            }
         }
 
-        // 5. STANDARD LOGIC
-        function saveLocally() { localStorage.setItem(currentBoardId, JSON.stringify(canvas.toJSON())); }
-        canvas.on('path:created', saveLocally);
-        canvas.on('object:modified', saveLocally);
-        
-        window.onload = function() {
-            renderSidebar();
-            const saved = localStorage.getItem(currentBoardId);
-            if (saved) canvas.loadFromJSON(saved, () => { canvas.renderAll(); updateBrush(); });
-            
-            // PWA Install Prompt
-            window.addEventListener('beforeinstallprompt', (e) => {
-                e.preventDefault(); deferredPrompt = e;
-                document.getElementById('install-btn').style.display = 'inline-block';
-            });
-        };
-
-        // Pan Logic
-        let isDragging = false, lastPosX, lastPosY;
-        canvas.on('mouse:down', function(opt) {
-            if (currentMode === 'pan' || opt.e.altKey) {
-                isDragging = true; canvas.isDrawingMode = false;
-                lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
-            }
-        });
-        canvas.on('mouse:move', function(opt) {
-            if (isDragging) {
-                var vpt = canvas.viewportTransform;
-                vpt[4] += opt.e.clientX - lastPosX; vpt[5] += opt.e.clientY - lastPosY;
-                canvas.requestRenderAll();
-                lastPosX = opt.e.clientX; lastPosY = opt.e.clientY;
-            }
-        });
-        canvas.on('mouse:up', () => { isDragging = false; if(currentMode !== 'pan') canvas.isDrawingMode = true; });
-
+        // --- 4. MODE SWITCHING ---
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById(`btn-${mode}`).classList.add('active');
-            if (mode === 'pan') { canvas.isDrawingMode = false; canvas.defaultCursor = 'grab'; }
-            else { canvas.isDrawingMode = true; canvas.defaultCursor = mode === 'erase' ? 'crosshair' : 'default'; updateBrush(); }
+            if (mode === 'select') document.getElementById('btn-select').classList.add('active');
+            else document.getElementById(`btn-${mode}`)?.classList.add('active');
+            
+            if (mode === 'draw') {
+                canvas.isDrawingMode = true; canvas.selection = false; canvas.skipTargetFind = true;
+                canvas.defaultCursor = 'default'; canvas.discardActiveObject(); canvas.requestRenderAll();
+                updateBrush();
+            } else if (mode === 'erase') {
+                canvas.isDrawingMode = true; canvas.selection = false; canvas.skipTargetFind = true;
+                canvas.defaultCursor = 'crosshair'; canvas.discardActiveObject(); canvas.requestRenderAll();
+                updateBrush();
+            } else if (mode === 'pan') {
+                canvas.isDrawingMode = false; canvas.selection = false; canvas.skipTargetFind = true;
+                canvas.defaultCursor = 'grab'; canvas.discardActiveObject(); canvas.requestRenderAll();
+            } else if (mode === 'select') {
+                canvas.isDrawingMode = false; canvas.selection = true; canvas.skipTargetFind = false;
+                canvas.defaultCursor = 'default';
+            }
         }
+        
+        function deleteSelected() {
+            const activeObjects = canvas.getActiveObjects();
+            if (activeObjects.length) {
+                canvas.discardActiveObject();
+                activeObjects.forEach(obj => canvas.remove(obj));
+                saveHistory(); saveLocally();
+            }
+        }
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && currentMode === 'select') deleteSelected();
+            if ((e.ctrlKey||e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+            if ((e.ctrlKey||e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); }
+        });
 
+        // --- 5. TOUCH & MOUSE ---
+        canvas.on('mouse:wheel', function(opt) {
+            var delta = opt.e.deltaY; var zoom = canvas.getZoom(); zoom *= 0.999 ** delta;
+            if (zoom > 20) zoom = 20; if (zoom < 0.01) zoom = 0.01;
+            canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+            updateBrush(); opt.e.preventDefault(); opt.e.stopPropagation();
+        });
+
+        let isTouchZooming = false, isTouchPanning = false, lastTouchDistance = 0, lastPanX = 0, lastPanY = 0;
+        canvas.upperCanvasEl.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 2) {
+                isTouchZooming = true; isTouchPanning = false; canvas.isDrawingMode = false; 
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                lastTouchDistance = Math.sqrt(dx*dx + dy*dy);
+            } else if (e.touches.length === 1 && currentMode === 'pan') {
+                isTouchPanning = true; isTouchZooming = false; canvas.isDrawingMode = false;
+                lastPanX = e.touches[0].clientX; lastPanY = e.touches[0].clientY;
+            }
+        }, { passive: false });
+        canvas.upperCanvasEl.addEventListener('touchmove', function(e) {
+            if(isTouchZooming || (isTouchPanning && currentMode === 'pan')) e.preventDefault(); 
+            if (isTouchZooming && e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const newDistance = Math.sqrt(dx*dx + dy*dy);
+                const zoomFactor = newDistance / lastTouchDistance;
+                let newZoom = canvas.getZoom() * zoomFactor;
+                if (newZoom > 20) newZoom = 20; if (newZoom < 0.1) newZoom = 0.1;
+                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                canvas.zoomToPoint({ x: centerX, y: centerY }, newZoom);
+                updateBrush(); lastTouchDistance = newDistance;
+            }
+            if (isTouchPanning && e.touches.length === 1) {
+                const x = e.touches[0].clientX; const y = e.touches[0].clientY;
+                const vpt = canvas.viewportTransform; vpt[4] += x - lastPanX; vpt[5] += y - lastPanY;
+                canvas.requestRenderAll(); lastPanX = x; lastPanY = y;
+            }
+        }, { passive: false });
+        canvas.upperCanvasEl.addEventListener('touchend', function(e) {
+            if(e.touches.length < 2) isTouchZooming = false;
+            if(e.touches.length === 0) isTouchPanning = false;
+            if (!isTouchZooming && !isTouchPanning) setMode(currentMode); 
+        });
+
+        // Mouse Pan
+        let isDragging = false, mouseLastX, mouseLastY;
+        canvas.on('mouse:down', function(opt) {
+            if (!opt.e.touches && (currentMode === 'pan' || opt.e.altKey)) {
+                isDragging = true; mouseLastX = opt.e.clientX; mouseLastY = opt.e.clientY;
+            }
+        });
+        canvas.on('mouse:move', function(opt) {
+            if (isDragging && !opt.e.touches) {
+                var vpt = canvas.viewportTransform; vpt[4] += opt.e.clientX - mouseLastX; vpt[5] += opt.e.clientY - mouseLastY;
+                canvas.requestRenderAll(); mouseLastX = opt.e.clientX; mouseLastY = opt.e.clientY;
+            }
+        });
+        canvas.on('mouse:up', () => { isDragging = false; });
+
+        // --- 6. SYSTEM FUNCTIONS ---
         function pickColor(hex, el) {
             document.getElementById('colorPicker').value = hex;
             document.querySelectorAll('.color-swatch').forEach(e => e.classList.remove('active'));
@@ -357,29 +311,92 @@
             if(currentMode !== 'draw') setMode('draw');
             updateBrush();
         }
-
         function toggleDarkMode() {
-            isDarkMode = !isDarkMode;
-            document.body.classList.toggle('dark-mode');
+            isDarkMode = !isDarkMode; document.body.classList.toggle('dark-mode');
             updateDarkModeVisuals(); saveLocally();
         }
-
         function updateDarkModeVisuals() {
             const newBg = isDarkMode ? '#1a1a1a' : '#ffffff';
-            canvas.backgroundColor = newBg;
-            eraserBrush.color = newBg;
+            canvas.backgroundColor = newBg; eraserBrush.color = newBg;
             canvas.getObjects().forEach(obj => {
                 if (obj.stroke === '#000000' && isDarkMode) obj.set('stroke', '#ffffff');
                 else if (obj.stroke === '#ffffff' && !isDarkMode) obj.set('stroke', '#000000');
             });
             canvas.renderAll();
         }
+        function exportFullPDF() {
+            if (canvas.getObjects().length === 0) { alert("Empty!"); return; }
+            const originalVpt = canvas.viewportTransform.slice();
+            const originalWidth = canvas.getWidth(); const originalHeight = canvas.getHeight();
+            const objects = canvas.getObjects();
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            objects.forEach(obj => {
+                const rect = obj.getBoundingRect();
+                if(rect.left < minX) minX = rect.left; if(rect.top < minY) minY = rect.top;
+                if(rect.left + rect.width > maxX) maxX = rect.left + rect.width; if(rect.top + rect.height > maxY) maxY = rect.top + rect.height;
+            });
+            const padding = 50; minX -= padding; minY -= padding; maxX += padding; maxY += padding;
+            canvas.setWidth(maxX - minX); canvas.setHeight(maxY - minY);
+            canvas.setViewportTransform([1, 0, 0, 1, -minX, -minY]); canvas.renderAll();
+            const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1 });
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ orientation: (maxX-minX) > (maxY-minY) ? 'landscape' : 'portrait', unit: 'px', format: [maxX-minX, maxY-minY] });
+            pdf.addImage(dataUrl, 'PNG', 0, 0, maxX-minX, maxY-minY);
+            pdf.save(`${currentBoardId}.pdf`);
+            canvas.setWidth(originalWidth); canvas.setHeight(originalHeight);
+            canvas.setViewportTransform(originalVpt); canvas.renderAll();
+        }
 
-        function clearCanvas() { if(confirm("Clear current notes?")) { canvas.clear(); updateDarkModeVisuals(); saveLocally(); } }
+        // --- 7. FILE SYSTEM ---
+        function getBoardList() { const l = localStorage.getItem(BOARDS_KEY); return l ? JSON.parse(l) : [{id: 'default', name: 'Notes'}]; }
+        function saveBoardList(l) { localStorage.setItem(BOARDS_KEY, JSON.stringify(l)); }
+        function saveLocally() { localStorage.setItem(currentBoardId, JSON.stringify(canvas.toJSON())); }
+        canvas.on('path:created', () => { saveHistory(); saveLocally(); });
+        canvas.on('object:modified', () => { saveHistory(); saveLocally(); });
+        function renderSidebar() {
+            const list = getBoardList(); const container = document.getElementById('fileList'); container.innerHTML = '';
+            list.forEach(board => {
+                const div = document.createElement('div');
+                div.className = `file-item ${board.id === currentBoardId ? 'active' : ''}`;
+                div.innerHTML = `<span onclick="switchBoard('${board.id}')">${board.name}</span>` + 
+                    (list.length > 1 ? `<button class="btn-delete" onclick="deleteBoard('${board.id}')">🗑</button>` : '');
+                container.appendChild(div);
+            });
+        }
+        function createNewBoard() {
+            const name = prompt("Name:"); if(!name) return;
+            saveLocally(); const list = getBoardList(); list.push({id: 'b_'+Date.now(), name: name});
+            saveBoardList(list); currentBoardId = list[list.length-1].id;
+            canvas.clear(); history = []; historyIndex = -1; saveHistory(); saveLocally(); renderSidebar(); toggleSidebar();
+        }
+        function switchBoard(id) {
+            if(id === currentBoardId) return;
+            saveLocally(); currentBoardId = id;
+            const s = localStorage.getItem(id);
+            if(s) canvas.loadFromJSON(s, () => { canvas.renderAll(); updateDarkModeVisuals(); });
+            history = []; historyIndex = -1; saveHistory(); renderSidebar();
+        }
+        function deleteBoard(id) {
+            if(!confirm("Delete?")) return;
+            let list = getBoardList(); list = list.filter(b => b.id !== id);
+            saveBoardList(list); localStorage.removeItem(id);
+            if(id === currentBoardId) { currentBoardId = list[0].id; switchBoard(currentBoardId); } else renderSidebar();
+        }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+        function clearCanvas() { if(confirm("Clear?")) { canvas.clear(); saveHistory(); saveLocally(); } }
+        
+        window.onload = function() {
+            renderSidebar();
+            const saved = localStorage.getItem(currentBoardId);
+            if(saved) { canvas.loadFromJSON(saved, () => { canvas.renderAll(); updateBrush(); saveHistory(); }); } else { saveHistory(); }
+            setMode('draw');
+        };
         window.addEventListener('resize', () => { canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); });
         
         let deferredPrompt;
-        async function installApp() { if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; } }
+        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; document.getElementById('install-btn').style.display = 'inline-block'; });
+        async function installApp() { if(deferredPrompt) deferredPrompt.prompt(); }
+
     </script>
 </body>
 </html>
